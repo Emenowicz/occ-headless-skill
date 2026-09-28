@@ -1,0 +1,12 @@
+{
+  "name": "next-shop-cms",
+  "private": true,
+  "scripts": { "dev": "next dev", "build": "next build", "start": "next start" },
+  "dependencies": {
+    "isomorphic-dompurify": "^2.26.0",
+    "next": "^16.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": { "@types/node": "^22", "@types/react": "^19", "typescript": "^5.9" }
+}
