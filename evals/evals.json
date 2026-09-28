@@ -1,0 +1,272 @@
+{
+  "skill_name": "occ-headless-frontend",
+  "evals": [
+    {
+      "id": 1,
+      "name": "next-add-to-cart-guest",
+      "prompt": "In our Next.js shop (project in evals/files/next-shop), add an \"Add to cart\" button to the product page app/p/[code]/page.tsx. Visitors must be able to add products without logging in, and the header should show how many items are in the cart. The backend is SAP Commerce Cloud via OCC.",
+      "expected_output": "Server-side cart handling that creates an anonymous cart lazily, keeps its guid in an httpOnly cookie, adds entries with the correct JSON body, reads the CartModification result, recovers only from CartError notFound, shows totalUnitCount in the header (read on the server, refreshed after an add), sends lang/curr, and fixes the NEXT_PUBLIC client secret.",
+      "files": [
+        "evals/files/next-shop"
+      ],
+      "expectations": [
+        "Cart calls to OCC run on the server (server action, route handler or Server Component), never from client components",
+        "The anonymous cart is created on the first add to cart via POST users/anonymous/carts, not on page load",
+        "The anonymous cart is identified by its guid (not its code), which is stored in an httpOnly cookie",
+        "Entries are added with POST users/anonymous/carts/{guid}/entries and a JSON body {product:{code}, quantity}",
+        "The CartModification statusCode or quantityAdded is checked, and the user is told when the product was not added (for example noStock)",
+        "A new cart replaces the stored one only on CartError notFound; a 5xx or network error does not drop the cookie, and there is no retry loop",
+        "The header count uses totalUnitCount (units), not totalItems (lines), and is read on the server",
+        "The header count updates after a successful add (revalidation, refresh or returned state)",
+        "OCC calls include lang and curr query parameters",
+        "NEXT_PUBLIC_OCC_CLIENT_SECRET is flagged as exposed, moved to a server-only variable (or removed), and rotating the secret is recommended",
+        "No new runtime dependency is added to package.json for HTTP or state",
+        "A failed or timed-out add is never re-sent blindly: any retry happens only after re-reading the cart (or there is no automatic retry)"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "next-login-cart-merge",
+      "prompt": "Add customer login to our Next.js shop (project in evals/files/next-shop). The backend is SAP Commerce Cloud 2211-jdk21 on CCv2 (see .env.example). If a visitor already has items in the cart, they must still be there after login. Also tell me what the backend team has to configure.",
+      "expected_output": "Authorization code + PKCE through a BFF with a confidential client (no password grant), single-use code exchange with form-body params, httpOnly token cookies, cart merge with oldCartId/toMergeCartGuid and the guest-cart exception, refresh with rotation and a single-flight guard, revoke on logout, and a backend handoff. Recognizes that a custom login page (loginPageUri) cannot work while the API is on the default CCv2 domain.",
+      "files": [
+        "evals/files/next-shop"
+      ],
+      "expectations": [
+        "Does not use the OAuth password grant, and says it is not available on 2211-jdk21",
+        "Uses the authorization code flow with PKCE (S256) and a state value that is checked on the callback",
+        "The code is exchanged on the server with the OAuth parameters in a form-encoded body, and tokens are stored in httpOnly cookies",
+        "A second request to the callback with the same code and state does not call the token endpoint again (a consumed-state marker, or the state/PKCE record is invalidated before the exchange)",
+        "Recognizes that a custom login page (loginPageUri) will not work while the API is on the default CCv2 domain (a different site from www.example-shop.com), and recommends the hosted login page now plus a custom API domain on the shop's site for a branded page",
+        "After login, merges the anonymous cart with POST users/current/carts using oldCartId (the anonymous guid) and toMergeCartGuid when the customer already has a cart, and later cart calls address the merged customer cart (by its code or the `current` alias), not the anonymous guid",
+        "Handles the guest-cart case (a cart with an email set cannot be merged) explicitly in code or in the write-up",
+        "Implements token refresh with grant_type=refresh_token and stores the rotated refresh token",
+        "Has a guard so that concurrent requests do not refresh with the same refresh token (single-flight, single refresh entry point, or lock)",
+        "Logout revokes the token at /authorizationserver/oauth/revoke and clears the token and cart cookies",
+        "The backend handoff describes an OAuthClientDetails client with authorization_code and refresh_token grants and an exact registered redirect URI, and does not ask for ROLE_TRUSTED_CLIENT",
+        "The client secret is kept server-side only (no NEXT_PUBLIC_ variable)"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "cors-401-debug",
+      "prompt": "Our React app on http://localhost:3000 calls https://api.c1a2b3-example-d1-public.model-t.cc.commerce.ondemand.com/occ/v2/electronics/... and the browser says \"blocked by CORS policy: No 'Access-Control-Allow-Origin' header\". Also, when we call /authorizationserver/oauth/token?grant_type=client_credentials&client_id=storefront&client_secret=... we get 401 invalid_client. Backend is SAP Commerce Cloud 2211-jdk21. What's wrong and how do we fix it? We can ask the backend team for changes.",
+      "expected_output": "Explains the CORS configuration for OCC, offers a dev proxy that strips the Origin header (OCC rejects unknown origins with 403 even through a proxy) or a BFF, explains that OAuth params belong in the form body, that client-credentials tokens are not needed for OCC on 2211-jdk21 and that a secret must not be in the browser (rotate it), lists invalid_client causes, and gives curl checks.",
+      "files": [],
+      "expectations": [
+        "Explains that CORS is configured on the backend and gives corsfilter.commercewebservices.allowedOriginPatterns (or allowedOrigins) including http://localhost:3000, with methods and headers",
+        "States that allowCredentials=true cannot be combined with a '*' origin",
+        "Offers a no-backend-change alternative (dev proxy or server-side BFF calls)",
+        "If a dev proxy is proposed, it removes or rewrites the Origin header, because OCC rejects requests with a non-allowed Origin with 403 even when they are proxied",
+        "Says the OAuth parameters must be sent in the POST form body, not in the URL query",
+        "Says client-credentials tokens are not needed for ordinary OCC calls on 2211-jdk21 (catalog, carts, checkout), and that a client secret must not be used in browser code",
+        "Recommends rotating the client secret that was exposed",
+        "Lists causes of invalid_client, such as a wrong secret, the wrong client authentication method, or a public client that is sent a secret",
+        "Gives a curl CORS preflight check (OPTIONS with Origin and Access-Control-Request-Method headers)",
+        "Mentions that the authorization server has its own CORS settings (corsfilter.authorizationserver.*)",
+        "Does not recommend disabling CORS or security, and does not suggest a '*' origin (with or without credentials) for production"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "angular-cms-content-pages",
+      "prompt": "Render SAP Commerce CMS pages in our Angular SSR app (project in evals/files/angular-shop): the homepage and any content page by its URL (e.g. /faq), with the slots and components from the CMS. We don't use Spartacus. Backend is SAP Commerce Cloud 2211-jdk21 via OCC.",
+      "expected_output": "Fetches pages from the user-level CMS endpoint (homepage without params, content pages by pageLabel), renders slots by position via a component registry (flexType/uid/typeCode), fetches component data with pageSize, handles navigation entries and space-separated lists, treats string booleans, sanitizes HTML without bypassing, prefixes media keeping the context query, returns a real 404 for CMSItemNotFoundError, sets title/robots, and keeps user data out of the transfer cache.",
+      "files": [
+        "evals/files/angular-shop"
+      ],
+      "expectations": [
+        "Fetches pages from the user-level endpoint users/anonymous/cms/pages (or users/current when signed in), not the deprecated site-level cms/pages; the homepage without page parameters (or with pageLabelOrId=homepage) and content pages with pageType=ContentPage plus pageLabel (or pageId/pageLabelOrId) taken from the URL",
+        "Renders slots by position using a registry that maps components by typeCode, using flexType for CMSFlexComponent (and uid for JspIncludeComponent), and skips unknown types without breaking",
+        "Normalizes contentSlot / component lists to arrays before iterating",
+        "Fetches component data that isn't inline in the page (for example the link components of navigation nodes) via cms/components?componentIds=… with pageSize (or batching), so that more than 10 components can come back",
+        "Navigation components: fetches the link components referenced by navigation node entries (itemId) instead of expecting inline links",
+        "Treats string booleans such as external=\"false\" correctly (does not use the raw string as a truthy value)",
+        "Binds CMS HTML with Angular's sanitizing [innerHTML] and does not call bypassSecurityTrustHtml on CMS content",
+        "Prefixes media URLs with the media host and keeps the ?context= query",
+        "A missing content page (404 CMSItemNotFoundError) produces a not-found view with a 404 HTTP status during SSR (e.g. RESPONSE_INIT)",
+        "Sets the document title (and robots meta from robotTag) from the CMS page",
+        "Does not add @spartacus packages",
+        "Requests the CMS endpoints with a fields level (DEFAULT or FULL) or no fields at all, never a list of field names",
+        "Names what client-side navigation needs from the backend or infrastructure: OCC CORS for the storefront origin, or a same-origin proxy"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "react-vite-plp-facets",
+      "prompt": "We have a React + Vite SPA (no SSR) on top of SAP Commerce Cloud 2211-jdk21, base site electronics. Build the category page /c/:code with facets, sorting and pagination, plus a search box with suggestions. In development we want to avoid CORS by proxying OCC through the Vite dev server. Put the code under a new folder `plp/` in your outputs.",
+      "expected_output": "Uses products/search with :relevance:allCategories:{code}, facet links from query.query.value and removeQuery, sort codes from sorts[], 0-based currentPage, pageSize<=100, valid fields, strips colons from user text, handles keywordRedirectUrl, suggestions + mini-search, sanitizes highlighted names, fetches the category name from the catalogs endpoint, keeps state in the URL, and a Vite proxy that strips Origin.",
+      "files": [],
+      "expectations": [
+        "The category page queries products/search with query=:relevance:allCategories:{code} (not category:)",
+        "Facet links use facets[].values[].query.query.value, and active filters are removed via breadcrumbs[].removeQuery.query.value, instead of building the query string by hand",
+        "Sort options come from the response's sorts[] and pagination uses a 0-based currentPage",
+        "Requests pageSize of 100 or less (or clamps it), and the fields parameter only contains valid field names",
+        "Removes ':' from the user's free-text search (or otherwise prevents it from breaking the query grammar)",
+        "Handles keywordRedirectUrl by navigating to the redirect target",
+        "The search box uses products/suggestions (phrases), and requests are debounced or cancelled",
+        "Product names from search are treated as HTML (the <em class=\"search-results-highlight\"> markup is sanitized or stripped), not injected raw",
+        "Gets the category name from catalogs/{catalogId}/Online/categories/{code} (or from breadcrumbs), not from a non-existent categories/{code} endpoint",
+        "Search state (query, sort, page) is kept in the URL",
+        "The Vite dev proxy removes or rewrites the Origin header (OCC answers 403 to unknown origins even through a proxy)"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "nuxt-guest-checkout",
+      "prompt": "Add guest checkout to our Nuxt shop (project in evals/files/nuxt-shop): a visitor with items in the cart enters an email, a shipping address, picks a delivery method and pays, without creating an account. We use Adyen for payments (drop-in). Backend is SAP Commerce Cloud 2211-jdk21.",
+      "expected_output": "Server routes (Nitro) as the BFF; sets the guest email with POST guestuser before any other checkout call; address with frontend validation; delivery modes after the address; payment through Adyen's drop-in and the project's PSP endpoints (no raw card data); place order with cartId in the query (no JSON body); double-submit protection; confirmation from the response (guest order guid); clears the cart cookie; moves the public secret.",
+      "files": [
+        "evals/files/nuxt-shop"
+      ],
+      "expectations": [
+        "Checkout calls go through Nuxt server routes (Nitro), not directly from the browser to OCC",
+        "Sets the guest email with POST users/anonymous/carts/{guid}/guestuser (JSON {email}) before calling delivery modes, delivery mode or payment endpoints",
+        "Sets the delivery address with POST .../addresses/delivery (JSON) and validates the address fields in the frontend beyond HTML required attributes (OCC may accept incomplete addresses)",
+        "Loads delivery modes only after the address is set, then sets one with PUT .../deliverymode?deliveryModeId=",
+        "Payment uses Adyen's Drop-in with the Adyen plugin's OCC endpoints (checkout configuration, place order / additional details); no raw card data is posted to OCC paymentdetails",
+        "The order is placed exactly once and by one endpoint: the Adyen plugin's place-order (which authorizes and places the order), or OCC's orders?cartId= with query parameters for a flow without the plugin; never both",
+        "The pay / place-order action has its own in-flight guard in the app code, or a server-side idempotency check (the Drop-in's built-in button state alone doesn't count)",
+        "The confirmation uses the place-order response, or after a redirect/3DS return reads the order on the server by guid with a client token; it never relies on an unauthenticated browser GET of the order",
+        "Handles the redirect/3DS return: routes for the plugin's return targets (for Adyen, /adyen/redirect/{orderCode} and /adyen/redirect/error/{message} under adyen.spartacus.baseurl; the plugin authorizes the payment itself), with additional-details only for in-page actions such as native 3DS2",
+        "Clears the stored cart id after the order is placed",
+        "Identifies that the plugin's checkout-configuration endpoint does not accept guest (anonymous) carts and needs a backend role change, or otherwise names this guest-checkout blocker",
+        "Flags the client secret under runtimeConfig.public / NUXT_PUBLIC_ as exposed and moves it server-side (or removes it)"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "b2b-account-checkout",
+      "prompt": "Our B2B storefront (React + Next.js App Router) runs on SAP Commerce Cloud 2211-jdk21, base site powertools. Buyers are logged in (we already have a BFF with the customer's access token in an httpOnly cookie). Implement the cart and checkout for \"pay on account\": add to cart, purchase order number, cost center, delivery address and place order. Write the code into `b2b/` in your outputs and explain the OCC calls.",
+      "expected_output": "Uses orgUsers where required (add entries with query params, delivery address, place order with termsChecked=true), users/current for cart read/patch/delete, payment type ACCOUNT + PO via query params, cost centers with unit addresses, delivery address limited to the cost center unit's addresses, B2B prices never shared-cached, and login required before catalog calls.",
+      "files": [],
+      "expectations": [
+        "Adds entries with POST orgUsers/current/carts/{code}/entries using query parameters (quantity, code), not the B2C users/.../entries JSON call",
+        "Reads the cart via users/current/carts/{code} (or the current alias), not via orgUsers",
+        "Sets payment type ACCOUNT with PUT users/current/carts/{code}/paymenttype?paymentType=ACCOUNT&purchaseOrderNumber=...",
+        "Loads cost centers with their unit addresses (costcenters?fields=...unit(...addresses...)) and sets one with PUT .../costcenter?costCenterId=",
+        "Only offers the cost center unit's addresses for delivery and sets it by addressId (orgUsers/current/carts/{code}/addresses/delivery?addressId=), instead of a free-form address",
+        "Places the order with POST orgUsers/current/orders?cartId=...&termsChecked=true",
+        "States that the B2B site requires authentication and that anonymous calls fail with 404 UnknownResourceError (not 401), or redirects to login before any catalog or cart call",
+        "Does not put B2B prices in a shared cache",
+        "Serializes cart mutations or prevents double submission",
+        "Sets a delivery mode (GET .../deliverymodes, PUT .../deliverymode?deliveryModeId=) before placing the order",
+        "Never retries place order automatically; after an ambiguous failure it checks whether the order was created before offering another attempt",
+        "Names occ.rewrite.overlapping.paths.enabled=true as a backend precondition for the orgUsers endpoints"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "nuxt-pdp-variants-seo",
+      "prompt": "Build the product detail page in our Nuxt shop (project in evals/files/nuxt-shop): gallery, price, stock, variant selection, reviews teaser and good SEO (canonical URLs, hreflang for en/de, structured data). Backend is SAP Commerce Cloud 2211-jdk21 via OCC.",
+      "expected_output": "Uses valid fields presets, handles base products vs variants, builds the gallery from format/imageType/galleryIndex with the media host and context query, shows formattedValue and stock status, sanitizes description HTML, returns 404 for UnknownIdentifierError, builds canonical routes from the code (not product.url), maps en/de to SAP isocodes, uses routeRules caching only for public data, and moves the public secret.",
+      "files": [
+        "evals/files/nuxt-shop"
+      ],
+      "expectations": [
+        "Uses a fields value made of valid OCC field names (e.g. the Spartacus-style details/variants presets) instead of FULL for the page",
+        "Handles base products (purchasable false, price in priceRange): shows no buy action for them and makes the variant choice visible (or redirects to a variant)",
+        "Builds the gallery from images by imageType PRIMARY/GALLERY, galleryIndex and format, with the media host prefixed and the ?context= query kept",
+        "Displays price.formattedValue (not value with a hard-coded currency) and uses stock.stockLevelStatus",
+        "Sanitizes the product description HTML before v-html (or renders it safely)",
+        "An unknown product (OCC 400 UnknownIdentifierError) results in a 404 page with a 404 status (createError 404), while other errors are not turned into 404",
+        "The canonical URL is built from the product code (and slug) on the shop's own routes, not from OCC's product.url",
+        "hreflang/lang handling maps the shop locales to SAP isocodes (e.g. de, not de-DE) for OCC calls",
+        "Page caching (routeRules swr/isr or similar), if used, applies only to public product data and not to cart/user data",
+        "Flags the client secret under runtimeConfig.public / NUXT_PUBLIC_ as exposed and moves it server-side (or removes it)"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "smartedit-nextjs",
+      "prompt": "Our content team wants to edit the pages of our Next.js storefront (project in evals/files/next-shop-cms) in SmartEdit, as they did with the old accelerator storefront. Implement what the frontend needs and tell us what the backend team has to configure. The backend is SAP Commerce Cloud 2211-jdk21 with SmartEdit installed.",
+      "expected_output": "Preview mode keyed on cmsTicketId: the ticket is added to /cms/ and /products/ OCC calls and carried for SSR via URL or a SameSite=None cookie; preview bypasses ISR/Data Cache; the injector is served from own assets, preview only, with data-smartedit-allow-origin; properties.smartedit are mapped to data-smartedit-* attributes and classes; fields DEFAULT/FULL; framing allowed only for the SmartEdit origin; renderComponent; backend handoff (whiteListedStorefronts, previewURL, urlPatterns); the silent unknown-ticket fallback; nothing shipped to normal visitors.",
+      "files": [
+        "evals/files/next-shop-cms"
+      ],
+      "expectations": [
+        "Detects SmartEdit preview by the cmsTicketId query parameter and adds cmsTicketId to every OCC call whose path contains /cms/ or /products/ while in preview",
+        "Keeps the ticket available to server rendering for the whole preview session: on internal links (URL) or in a cookie set with SameSite=None; Secure, not only in sessionStorage/localStorage",
+        "Preview requests bypass caching: no ISR / Data Cache for requests with a ticket (e.g. cache: 'no-store', dynamic rendering or draftMode), so editors see their changes immediately",
+        "Loads webApplicationInjector.js only in preview mode, served from the app's own assets (not from the backend's /smartedit path), with data-smartedit-allow-origin set to the SmartEdit host",
+        "Copies properties.smartedit onto the DOM: data-smartedit-* attributes and the classes on slots and components, and the page classes on <body> (or the page root)",
+        "Requests CMS data with fields DEFAULT or FULL (not BASIC, not a list of names), so properties.smartedit is returned",
+        "Allows framing by the SmartEdit origin only (frame-ancestors / X-Frame-Options adjusted for that origin or for preview), without letting any origin frame the shop",
+        "Implements window.smartedit.renderComponent (and/or reprocessPage) so edits re-render without a manual reload",
+        "Backend handoff: add the storefront to SmartEdit's whiteListedStorefronts, set the CMSSite previewURL, and make the storefront host match a CMSSite urlPattern (otherwise creating the preview ticket fails)",
+        "Mentions that an unknown or expired ticket silently returns Online content (debug hint: catalogVersionUuid ends in /Staged), or detects and handles it",
+        "Normal visitors get none of the SmartEdit additions: the injector, the attributes and the relaxed framing are gated on preview"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "storyblok-product-teaser-occ",
+      "prompt": "Marketing builds landing pages in Storyblok. Add a \"Product teaser\" block to our Next.js shop (project in evals/files/next-shop): editors pick up to four products from SAP Commerce in Storyblok, and the landing page shows them with image, name, live price and stock. Landing pages live under /lp/[slug]. The backend is SAP Commerce Cloud 2211-jdk21 via OCC, and the Storyblok space exists already.",
+      "expected_output": "Storyblok stores only product codes; the server fetches price/stock live from OCC per code in parallel (no multi-code search); formattedValue and stockLevelStatus; unknown codes are skipped; separate caches for CMS content and OCC data; draft mode works; OCC CORS for the picker's origin; media host and ?context kept; the NEXT_PUBLIC secret fixed.",
+      "files": [
+        "evals/files/next-shop"
+      ],
+      "expectations": [
+        "The page takes name, image, price and stock from OCC by product code, never from Storyblok or the picker's saved snapshot",
+        "Price and stock come from OCC at render time on the server, with lang and curr, not from Storyblok",
+        "Fetches the teaser's products from OCC in a way that works: one GET products/{code} per code in parallel (live values), or one products/search?filters=code:a,b,… call (index values, which the answer states); not a query that repeats code: (…:code:A:code:B returns nothing)",
+        "Shows price.formattedValue and uses stock.stockLevelStatus",
+        "A code that no longer exists (400 UnknownIdentifierError) is skipped: the block renders without it and the page doesn't fail",
+        "Caches Storyblok content and OCC product data separately: CMS content may be cached and revalidated (e.g. by a Storyblok webhook), while price and stock use no cache or a short TTL",
+        "Storyblok draft/preview (visual editor) renders draft content, and product data stays live in draft mode too",
+        "Backend handoff: OCC CORS must allow the origin the Storyblok product picker calls from, because the picker queries OCC from the editor's browser",
+        "Product images use the OCC media host with the ?context= query kept",
+        "Flags NEXT_PUBLIC_OCC_CLIENT_SECRET as exposed and moves it server-side (or removes it)"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "next-quirks-code-review",
+      "prompt": "We're about to go live with our Next.js storefront on SAP Commerce Cloud 2211-jdk21 (project in evals/files/next-shop-review). Please review the product, cart, checkout, search and login code for problems and fix what you find.",
+      "expected_output": "Finds and fixes most planted OCC-specific issues (at least 12 of 15).",
+      "files": [
+        "evals/files/next-shop-review"
+      ],
+      "expectations": [
+        "Flags and fixes that lib/media.ts strips the ?context= query from media URLs",
+        "Flags and fixes that next.config.ts remotePatterns with search: '' blocks OCC media URLs that carry a query",
+        "Flags and fixes that OCC calls (including the server actions) send no lang and curr parameters",
+        "Flags and fixes that an unknown product (OCC 400 UnknownIdentifierError) becomes an error page: it now calls notFound() for that error type only",
+        "Flags and fixes that getCart caches a user-specific response (revalidate with an Authorization header) by making it no-store",
+        "Flags and fixes that the anonymous cart is stored by code instead of guid",
+        "Flags and fixes that add to cart treats HTTP 200 as success, now reading CartModification statusCode or quantityAdded",
+        "Flags and fixes that prices are formatted from value with a hard-coded '$', now using formattedValue",
+        "Flags and fixes that placeOrder sends a JSON body: cartId is now sent as a query parameter (and it is the customer's cart, not the anonymous cookie, when signed in)",
+        "Flags and fixes that the place-order button allows double submission",
+        "Flags and fixes that the cart id cookie is not cleared after the order is placed (or makes it impossible by design, explained)",
+        "Flags and fixes that facet links are built by string concatenation, now using query.query.value (or breadcrumb removeQuery)",
+        "Flags and fixes that the search page's currentPage starts at 1 although OCC is 0-based",
+        "Replaces the password-grant LoginForm with an authorization code + PKCE flow (not only a proposal)",
+        "Flags and fixes the client secret in NEXT_PUBLIC_OCC_CLIENT_SECRET and the access token in localStorage"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "angular-cms-b2b-quirks-review",
+      "prompt": "Please review our Angular B2B storefront (project in evals/files/angular-shop-review) before go-live: the CMS rendering, the product and content pages, the B2B cart/checkout service and the SSR setup. The backend is SAP Commerce Cloud 2211-jdk21, site powertools. Fix what you find.",
+      "expected_output": "Finds and fixes most planted CMS/B2B/SSR issues (at least 10 of 12).",
+      "files": [
+        "evals/files/angular-shop-review"
+      ],
+      "expectations": [
+        "Flags and fixes that cms/components is called without pageSize, so only 10 components come back",
+        "Flags and fixes that navigation entries are rendered from entry.url/linkName although entries only reference link components by itemId (the components must be fetched)",
+        "Flags and fixes that ProductCarouselComponent.productCodes is treated as an array although OCC sends a space-separated string",
+        "Flags and fixes that the link component uses the string \"false\" of external as a truthy value",
+        "Flags and fixes bypassSecurityTrustHtml on CMS paragraph content",
+        "Flags and fixes that the HTTP transfer cache (includeRequestsWithAuthHeaders true, no filter) can serialize customer data into the SSR HTML",
+        "Flags and fixes that B2B add to cart uses users/current/carts/{code}/entries (blocked for the B2B channel) instead of orgUsers/current/carts/{code}/entries with query parameters",
+        "Flags and fixes that the delivery address is a free-form address although paying on account requires one of the cost center unit's addresses",
+        "Flags and fixes that placeOrder on orgUsers omits termsChecked=true",
+        "Flags and fixes that price-cache.ts shares B2B prices across customers (cache keyed only by product code)",
+        "Flags and fixes that the product page treats 404 as 'product does not exist' although an unknown product is 400 UnknownIdentifierError and an anonymous call on this requiresAuthentication site returns 404 (login needed)",
+        "Flags and fixes that a missing CMS page (404 CMSItemNotFoundError) is shown as a generic error instead of a 404 page with 404 status"
+      ]
+    }
+  ]
+}

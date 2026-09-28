@@ -26,3 +26,6 @@ node_modules/
 
 # Claude Code local files
 .claude/
+
+# skill-creator eval workspaces
+*-workspace/
